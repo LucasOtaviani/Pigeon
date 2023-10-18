@@ -101,33 +101,6 @@ class PublisherTest extends TestCase
         $this->assertEquals($msg_data, json_decode($received->body, true));
     }
 
-    public function test_it_should_publish_a_remote_procedure_call()
-    {
-        // setup
-        $this->channel->exchange_declare($this->exchange, 'fanout', false, true, false, false, false, new AMQPTable([
-            'x-dead-letter-exchange' => 'dead.letter',
-        ]));
-        $this->channel->queue_declare($this->queue);
-        $this->channel->queue_bind($this->queue, $this->exchange);
-        $this->app['config']->set('pigeon.exchange', $this->exchange);
-        $this->app['config']->set('pigeon.exchange_type', 'direct');
-        $data = [
-            'pigeon.foo' => 'dove.bar',
-        ];
-
-        // act
-        $reply_to = $this->pigeon->exchange($this->exchange, 'fanout')
-            ->rpc($data);
-
-        // wait message publish and respond
-        sleep(1);
-        $message = $this->channel->basic_get($this->queue);
-        $this->assertEquals($reply_to, $message->get('reply_to'));
-        $this->assertEquals($data, json_decode($message->body, true));
-        $this->assertTrue(Str::contains($reply_to, 'amq'));
-        $this->channel->queue_delete($reply_to);
-    }
-
     public function test_it_should_publish_event()
     {
         // setup
@@ -200,5 +173,38 @@ class PublisherTest extends TestCase
         $msg_headers = $message->get('application_headers');
         $this->assertInstanceOf(AMQPTable::class, $msg_headers);
         $this->assertEquals($headers, $msg_headers->getNativeData());
+    }
+
+    public function test_it_should_send_default_headers()
+    {
+        // setup
+        $this->channel->exchange_declare($this->exchange, 'fanout', false, true, false, false, false, new AMQPTable([
+            'x-dead-letter-exchange' => 'dead.letter',
+        ]));
+        $this->channel->queue_declare($this->queue);
+        $this->channel->queue_bind($this->queue, $this->exchange);
+        $this->app['config']['app_name'] = 'Pigeon Test Suit';
+
+        // act
+        $pub = $this->pigeon->exchange($this->exchange, 'fanout');
+
+        // act
+        $pub->publish(['Scooby' => 'Dooo']);
+
+        // wait message go to broker
+        sleep(1);
+
+        // assert
+        $message = $this->channel->basic_get($this->queue);
+
+        /* @var $applicationHeaders AMQPTable */
+        $applicationHeaders = $message->get('application_headers');
+        $this->assertInstanceOf(AMQPTable::class, $applicationHeaders);
+        $this->assertEmpty($applicationHeaders->getNativeData());
+        $this->assertSame('application/json', $message->get('content_type'));
+        $this->assertSame('utf8', $message->get('content_encoding'));
+        $this->assertTrue(Str::isUuid($message->get('correlation_id')));
+        $this->assertEquals(60000000, $message->get('expiration'));
+        $this->assertSame('Pigeon Test Suit', $message->get('app_id'));
     }
 }

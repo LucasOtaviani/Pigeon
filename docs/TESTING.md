@@ -60,59 +60,38 @@ Pigeon::dispatchConsumer(
 );
 ``` 
 
-### RPC
-You can use `assertRpc` method to test RPC, it is basically the consumer and the publisher assertions together with ability to define the RPC response stub.
+There is a way to only verify the expected quatity of messages sent.
 
-!> When testing RPCs the env exchange will be always assumed, you can not override the exchange for now.
-
-This is an RPC test sample:
-
+If you want to assert the exact number of messages, use `assertDispatchCount`.
 ```php
 <?php
-//app/services/RpcService.php
-namespace App\Service;
 
 use Convenia\Pigeon\Facade\Pigeon;
 
-class RpcService
-{
-    public function handle()
-    {
-        //rpc method will return a fake queue
-        $queue = Pigeon::routing('my.routing.key')->rpc([
-            'scooby'
-        ]);
+Pigeon::fake();
 
-        //just a simple consumer
-        Pigeon::queue($queue)->callback(function ($response) {
-            dd($response);
-            /**
-             * array:1 [
-             *     0 => "doo"
-             * ]
-             */
-        })->consume(5, false);
-    }
-}
+Pigeon::dispatch('my-queue', [
+    'some-data' => 123,
+]);
+
+Pigeon::dispatch('another-great-queue', [
+    'some-data' => 123,
+]);
+
+Pigeon::assertDispatchCount(2); // Returns true
 ```
 
+If you want to only check if nothing was sent, use `assertNothingDispatched`.
 ```php
-//RpcTest.php
+<?php
+
+use Convenia\Pigeon\Facade\Pigeon;
 
 Pigeon::fake();
 
-//call application code
-$service = new App\Services\RpcService()
-$service->handle();
+Pigeon::dispatch('my-queue', [
+    'some-data' => 123,
+]);
 
-//this method needs to be called after all
-//this can blow your mind but here you define the response that will be passed to callback
-Pigeon::assertRpc('my.routing.key', ['scooby'], ['doo']);
+Pigeon::assertNothingDispatched(); // Returns false
 ```
-The snippet above will assert the routing key and the data sent by rpc, and define a response stub that will be send to que RPC consumer.
-
-You can assert timeout and multiplicity like assertConsuming assertion. normally multiplicity will be false
-
-```php
-Pigeon::assertRpc($routing, $expectedData, $expectedResponse, $timeout = 5, $multiplicity = false);
-``` 

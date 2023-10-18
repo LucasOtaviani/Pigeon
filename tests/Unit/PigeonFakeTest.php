@@ -7,11 +7,15 @@ use Convenia\Pigeon\Facade\Pigeon;
 use Convenia\Pigeon\Publisher\Publisher;
 use Convenia\Pigeon\Resolver\ResolverContract;
 use Convenia\Pigeon\Tests\TestCase;
+use Illuminate\Foundation\Testing\WithFaker;
 use PHPUnit\Framework\Constraint\ExceptionMessage;
 use PHPUnit\Framework\ExpectationFailedException;
 
 class PigeonFakeTest extends TestCase
 {
+    use WithFaker;
+
+    /** @var \Convenia\Pigeon\Support\Testing\PigeonFake */
     protected $fake;
 
     protected function setUp(): void
@@ -230,53 +234,6 @@ class PigeonFakeTest extends TestCase
         $this->fake->assertPublished($routing, $data);
     }
 
-    public function test_it_should_assert_rpc_calls_and_response()
-    {
-        // setup
-        $exchange = 'my.awesome.exchange';
-        $type = 'direct';
-        $routing = 'my.awesome.application';
-        $queue = 'blue-pen';
-        $data = [
-            'scooby',
-        ];
-
-        $expectedResponse = [
-            'doo',
-        ];
-
-        $this->app['config']->set('pigeon.exchange', $exchange);
-        $this->app['config']->set('pigeon.exchange_type', $type);
-
-        //act
-        $callbackCalled = false;
-        $response = [];
-
-        $queue = $this->fake->routing($routing)->rpc($data);
-
-        $this->fake->queue($queue)
-            ->callback(function ($expectedData) use (&$callbackCalled, &$response) {
-                $callbackCalled = true;
-                $response = $expectedData;
-            })->consume(5, false);
-
-        //assert
-        $this->fake->assertRpc($routing, $data, $expectedResponse);
-        $this->assertTrue($callbackCalled);
-        $this->assertEquals($expectedResponse, $response);
-    }
-
-    public function test_it_can_assert_rpc__consumer_timeout_and_multiplicity()
-    {
-        // act
-        $queue = $this->fake->routing('routing.key')->rpc([]);
-        $this->fake->queue($queue)->callback(function () {
-        })->consume(5, false);
-
-        //assert
-        $this->fake->assertRpc('routing.key', [], [], 5, false);
-    }
-
     public function test_it_should_fail_assert_message_published_using_routing_wrong_body()
     {
         // setup
@@ -310,73 +267,6 @@ class PigeonFakeTest extends TestCase
         }
     }
 
-    public function test_it_should_assert_message_published_using_rpc()
-    {
-        // setup
-        $exchange = 'my.awesome.exchange';
-        $type = 'direct';
-        $routing = 'my.awesome.application';
-        $data = [
-            'foo' => 'fighters',
-        ];
-
-        $this->app['config']->set('pigeon.exchange', $exchange);
-        $this->app['config']->set('pigeon.exchange_type', $type);
-
-        // act
-        try {
-            $this->fake->assertPublished($routing, $data);
-            $this->fail();
-        } catch (ExpectationFailedException $e) {
-            $this->assertThat($e, new ExceptionMessage("No message published in [$routing] with body"));
-        }
-        $this->fake->routing($routing)
-            ->rpc($data);
-
-        $this->fake->assertPublished($routing, $data);
-    }
-
-    public function test_it_should_assert_callback_response_for_message()
-    {
-        // setup
-        $queue = 'my.awesome.queue';
-        $data = [
-            'foo' => 'fighters',
-        ];
-        $message = [
-            'bar' => 'baz',
-        ];
-
-        // act
-        try {
-            $this->fake->assertCallbackReturn($queue, $message, $data);
-            $this->fail();
-        } catch (ExpectationFailedException $e) {
-            $this->assertThat($e, new ExceptionMessage("The queue [$queue] has no consumer"));
-        }
-        try {
-            $this->fake->queue($queue)
-                ->callback(function ($message, ResolverContract $resolver) {
-                    $resolver->response([
-                        'wrong' => 'response',
-                    ]);
-                })
-                ->consume();
-            $this->fake->assertCallbackReturn($queue, $message, $data);
-            $this->fail();
-        } catch (ExpectationFailedException $e) {
-            $this->assertThat($e, new ExceptionMessage('No RPC reply with defined body'));
-        }
-
-        $this->fake->queue($queue)
-            ->callback(function ($message, ResolverContract $resolver) use ($data) {
-                $resolver->response($data);
-            })
-            ->consume();
-
-        $this->fake->assertCallbackReturn($queue, $message, $data);
-    }
-
     public function test_it_should_assert_event_emitted()
     {
         // setup
@@ -387,14 +277,14 @@ class PigeonFakeTest extends TestCase
 
         // act
         try {
-            $this->fake->assertEmitted($category, $data);
+            $this->fake->assertDispatched($category, $data);
             $this->fail();
         } catch (ExpectationFailedException $e) {
             $this->assertThat($e, new ExceptionMessage("No event [$category] emitted with body"));
         }
         $this->fake->dispatch($category, $data);
 
-        $this->fake->assertEmitted($category, $data);
+        $this->fake->assertDispatched($category, $data);
     }
 
     public function test_it_should_assert_consuming_event()
@@ -551,5 +441,36 @@ class PigeonFakeTest extends TestCase
         ];
 
         $this->fake->assertNotDispatched($category, $data);
+    }
+
+    public function test_it_asserts_nothing_dispatched()
+    {
+        $this->fake->assertNothingDispatched();
+
+        $this->fake->dispatch('some.dummy.queue', ['dummy-field' => 123]);
+
+        $this->expectException(ExpectationFailedException::class);
+        $this->expectExceptionMessage('Failed asserting that actual size 1 matches expected size 0.');
+
+        $this->fake->assertNothingDispatched();
+    }
+
+    public function test_if_asserts_the_count_of_messages()
+    {
+        $howMany = 22;
+
+        for ($i = $howMany; $i > 0; $i--) {
+            $this->fake->dispatch(
+                implode('.', $this->faker->words()),
+                ['some-dummy-field' => $this->faker->sentence()]
+            );
+        }
+
+        $this->fake->assertDispatchCount($howMany);
+
+        $this->expectException(ExpectationFailedException::class);
+        $this->expectExceptionMessage('Failed asserting that actual size 22 matches expected size 10.');
+
+        $this->fake->assertDispatchCount(10);
     }
 }
